@@ -3,6 +3,7 @@ services:
     name: mp3-mastering-backend
     runtime: python
     plan: free
+    rootDir: .
     buildCommand: pip install flask gunicorn
     startCommand: python -m gunicorn server:app
     envVars:
