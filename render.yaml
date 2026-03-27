@@ -1,10 +1,10 @@
 services:
   - type: web
-    name: v51-mastering-backend
+    name: mp3-mastering-backend
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn src.server:app
+    buildCommand: pip install flask gunicorn
+    startCommand: python -m gunicorn server:app
     envVars:
       - key: ENABLE_TOKEN_CHECK
         value: true
