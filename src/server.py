@@ -7,10 +7,6 @@ from pathlib import Path
 
 app = Flask(__name__)
 
-# =========================
-# BASIC ROUTES
-# =========================
-
 @app.route("/")
 def home():
     return {"ok": True, "service": "v51-backend"}
@@ -19,20 +15,12 @@ def home():
 def health():
     return {"ok": True}
 
-# =========================
-# AUTH
-# =========================
-
 def check_auth():
     token = os.getenv("MASTERING_BACKEND_TOKEN", "")
     header = request.headers.get("Authorization", "")
     if not token:
         return True
     return header == f"Bearer {token}"
-
-# =========================
-# MASTER (MP3 PROCESSING)
-# =========================
 
 @app.route("/master", methods=["POST"])
 def master():
@@ -51,7 +39,6 @@ def master():
 
         file.save(input_path)
 
-        # SIMPLE MASTERING (FFMPEG)
         cmd = [
             "ffmpeg",
             "-y",
@@ -67,7 +54,7 @@ def master():
             return jsonify({
                 "ok": False,
                 "error": "ffmpeg failed",
-                "stderr": result.stderr.decode()
+                "stderr": result.stderr.decode(errors="ignore")
             }), 500
 
         return send_file(
@@ -80,10 +67,6 @@ def master():
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
-# =========================
-# ANALYZE (PLACEHOLDER)
-# =========================
-
 @app.route("/analyze", methods=["POST"])
 def analyze():
     if not check_auth():
@@ -94,10 +77,6 @@ def analyze():
         "message": "analyze placeholder"
     })
 
-# =========================
-# SITUATE (PLACEHOLDER)
-# =========================
-
 @app.route("/situate", methods=["POST"])
 def situate():
     if not check_auth():
@@ -107,10 +86,6 @@ def situate():
         "ok": True,
         "message": "situate placeholder"
     })
-
-# =========================
-# RUN LOCAL
-# =========================
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
