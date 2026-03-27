@@ -1,5 +1,3 @@
-# Auto-Setup-Render-for-Backend-Mp3-Mastering
-Auto Setup Render for Backend Mp3 Mastering
 # V51 RENDER SETUP
 
 Dieses Paket ist dein deploy-fertiges Render-Setup für das MP3-Mastering-Backend.
