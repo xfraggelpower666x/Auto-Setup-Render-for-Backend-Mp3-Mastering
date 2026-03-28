@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: mp3-mastering-backend
+    runtime: python
+    plan: free
+    rootDir: .
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn src.server:app
+    envVars:
+      - key: ENABLE_TOKEN_CHECK
+        value: true
+      - key: DEFAULT_PRESET
+        value: club
+      - key: DEFAULT_TARGET_LUFS
+        value: -8
+      - key: DEFAULT_CEILING_DB
+        value: -0.8
+      - key: DEFAULT_OUTPUT_FORMAT
+        value: mp3
+      - key: DEFAULT_WIDEN
+        value: 1.05
+      - key: DEFAULT_SATURATION
+        value: soft
+      - key: MAX_FILE_SIZE_BYTES
+        value: 262144000
+      - key: MASTERING_BACKEND_TOKEN
+        sync: false
