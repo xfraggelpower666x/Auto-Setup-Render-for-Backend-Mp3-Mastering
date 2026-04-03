@@ -1,27 +1,23 @@
 services:
   - type: web
-    name: mp3-mastering-backend
-    runtime: python
+    name: auto-setup-render-for-backend-mp3
+    env: python
     plan: free
     rootDir: .
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn src.server:app
+    startCommand: uvicorn src.server:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: ENABLE_TOKEN_CHECK
-        value: true
-      - key: DEFAULT_PRESET
-        value: club
-      - key: DEFAULT_TARGET_LUFS
-        value: -8
-      - key: DEFAULT_CEILING_DB
-        value: -0.8
-      - key: DEFAULT_OUTPUT_FORMAT
-        value: mp3
-      - key: DEFAULT_WIDEN
-        value: 1.05
-      - key: DEFAULT_SATURATION
-        value: soft
-      - key: MAX_FILE_SIZE_BYTES
-        value: 262144000
+      - key: MASTER_ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
       - key: MASTERING_BACKEND_TOKEN
         sync: false
+      - key: MASTERING_BACKEND_URL
+        value: https://auto-setup-render-for-backend-mp3.onrender.com
+      - key: MASTERING_WORKER_URL
+        value: https://666soundsdesign-mp3-mastering.fraggelpower666.workers.dev
+      - key: SYSTEM_PW_WORKER_URL
+        value: https://system-pw-worker.fraggelpower666.workers.dev
