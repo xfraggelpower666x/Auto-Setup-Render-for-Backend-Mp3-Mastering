@@ -1,51 +1,17 @@
 import os
-import uuid
-import shutil
-import sqlite3
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, Request, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 
-app = FastAPI()
-
-BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data"
-INPUT_DIR = DATA_DIR / "input"
-OUTPUT_DIR = DATA_DIR / "output"
-DB_PATH = DATA_DIR / "jobs.db"
-
-DATA_DIR.mkdir(exist_ok=True)
-INPUT_DIR.mkdir(exist_ok=True)
-OUTPUT_DIR.mkdir(exist_ok=True)
+APP_NAME = "audio-only-mp3-mastering-backend"
 
 MASTER_ADMIN_PASSWORD = os.getenv("MASTER_ADMIN_PASSWORD", "")
 
-
-# ======================
-# DB
-# ======================
-def db():
-    return sqlite3.connect(DB_PATH)
-
-
-def init_db():
-    conn = db()
-    c = conn.cursor()
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS jobs (
-        id TEXT PRIMARY KEY,
-        filename TEXT,
-        output TEXT,
-        status TEXT
-    )
-    """)
-    conn.commit()
-    conn.close()
-
-
-init_db()
+app = FastAPI(title=APP_NAME)
 
 
 # ======================
@@ -53,18 +19,35 @@ init_db()
 # ======================
 def check_admin(request: Request):
     pw = request.headers.get("x-admin-password")
+    if not MASTER_ADMIN_PASSWORD:
+        raise HTTPException(status_code=500, detail="MASTER_ADMIN_PASSWORD not configured")
     if pw != MASTER_ADMIN_PASSWORD:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 # ======================
-# ROUTES
+# HEALTH
 # ======================
 @app.get("/health")
 def health():
-    return {"ok": True}
+    ffmpeg_found = shutil_which("ffmpeg") is not None
+    ffprobe_found = shutil_which("ffprobe") is not None
+    return {
+        "ok": True,
+        "service": APP_NAME,
+        "ffmpeg_found": ffmpeg_found,
+        "ffprobe_found": ffprobe_found,
+    }
 
 
+def shutil_which(binary_name: str) -> Optional[str]:
+    from shutil import which
+    return which(binary_name)
+
+
+# ======================
+# MASTERING
+# ======================
 @app.post("/process")
 async def process_audio(
     request: Request,
@@ -73,65 +56,55 @@ async def process_audio(
 ):
     check_admin(request)
 
-    job_id = str(uuid.uuid4())
+    # mode bleibt drin für spätere Kompatibilität
+    # aktuell wird hier nur Audio-Processing / Mastering behandelt
+    original_name = file.filename or "upload.mp3"
+    safe_stem = Path(original_name).stem
+    output_name = f"{safe_stem}_mastered.mp3"
 
-    input_path = INPUT_DIR / f"{job_id}_{file.filename}"
-    output_path = OUTPUT_DIR / f"{job_id}_out.mp3"
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            input_path = tmpdir_path / original_name
+            output_path = tmpdir_path / output_name
 
-    with open(input_path, "wb") as f:
-        f.write(await file.read())
+            # Upload speichern
+            content = await file.read()
+            with open(input_path, "wb") as f:
+                f.write(content)
 
-    # fake mastering
-    shutil.copy(input_path, output_path)
+            # Einfaches Mastering / Loudness-Normalisierung
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-i", str(input_path),
+                "-af", "loudnorm=I=-9:TP=-1.0:LRA=7",
+                "-ar", "48000",
+                "-b:a", "320k",
+                str(output_path),
+            ]
 
-    conn = db()
-    c = conn.cursor()
-    c.execute(
-        "INSERT INTO jobs VALUES (?, ?, ?, ?)",
-        (job_id, file.filename, str(output_path), "done"),
-    )
-    conn.commit()
-    conn.close()
+            result = subprocess.run(cmd, capture_output=True, text=True)
 
-    return {"job_id": job_id}
+            if result.returncode != 0:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"ffmpeg failed: {result.stderr}"
+                )
 
+            if not output_path.exists():
+                raise HTTPException(
+                    status_code=500,
+                    detail="Mastered output file was not created"
+                )
 
-@app.get("/jobs")
-def jobs():
-    conn = db()
-    c = conn.cursor()
-    rows = c.execute("SELECT * FROM jobs").fetchall()
-    conn.close()
+            return FileResponse(
+                path=output_path,
+                media_type="audio/mpeg",
+                filename=output_name,
+            )
 
-    return rows
-
-
-from fastapi.responses import FileResponse
-import os
-
-@app.get("/download/{job_id}")
-def download(job_id: str):
-    conn = db()
-    c = conn.cursor()
-
-    row = c.execute(
-        "SELECT filename, output FROM jobs WHERE id=?",
-        (job_id,)
-    ).fetchone()
-
-    conn.close()
-
-    if not row:
-        raise HTTPException(status_code=404, detail="Job not found")
-
-    filename = row[0]
-    output_path = row[1]
-
-    if not os.path.exists(output_path):
-        raise HTTPException(status_code=404, detail="File not found")
-
-    return FileResponse(
-        path=output_path,
-        media_type="audio/mpeg",
-        filename=filename
-    )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
