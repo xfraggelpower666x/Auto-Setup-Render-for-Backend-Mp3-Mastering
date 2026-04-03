@@ -410,25 +410,16 @@ async def process_audio(
     mode: Optional[str] = Form(default="process"),
 ):
     check_admin(request)
+    if file is None:
+    raise HTTPException(status_code=400, detail="file upload required")
 
-    payload = None
-    content_type = request.headers.get("content-type", "")
-    if "application/json" in content_type:
-        data = await request.json()
-        payload = ProcessRequest(**data)
-        source_filename = payload.filename
-        dummy_path = INPUT_DIR / source_filename
-        if not dummy_path.exists():
-            dummy_path.write_bytes(b"")
-        source_path = dummy_path
-    else:
-        if file is None:
-            raise HTTPException(status_code=400, detail="file upload or JSON payload required")
-        source_filename = file.filename or "upload.mp3"
-        source_path = INPUT_DIR / source_filename
-        with open(source_path, "wb") as f:
-            f.write(await file.read())
-        payload = ProcessRequest(filename=source_filename, mode=mode or "process")
+    source_filename = file.filename or "upload.mp3"
+    source_path = INPUT_DIR / source_filename
+
+    with open(source_path, "wb") as f:
+    f.write(await file.read())
+
+    payload = ProcessRequest(filename=source_filename, mode=mode or "process")
 
     metadata = default_metadata(source_filename, payload)
     job_id = create_job(source_filename=source_filename, source_path=str(source_path), mode=payload.mode)
