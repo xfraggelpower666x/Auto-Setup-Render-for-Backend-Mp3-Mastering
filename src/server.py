@@ -411,8 +411,8 @@ async def process_audio(
 ):
     check_admin(request)
     if file is None:
-    raise HTTPException(status_code=400, detail="file upload required")
-
+        raise HTTPException(status_code=400, detail="file upload required")
+    
     source_filename = file.filename or "upload.mp3"
     source_path = INPUT_DIR / source_filename
 
