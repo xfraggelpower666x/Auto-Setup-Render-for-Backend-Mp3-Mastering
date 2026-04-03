@@ -106,14 +106,26 @@ def jobs():
     return rows
 
 
+from fastapi.responses import FileResponse
+
 @app.get("/download/{job_id}")
 def download(job_id: str):
     conn = db()
     c = conn.cursor()
-    row = c.execute("SELECT output FROM jobs WHERE id=?", (job_id,)).fetchone()
+    row = c.execute(
+        "SELECT filename, output FROM jobs WHERE id=?",
+        (job_id,)
+    ).fetchone()
     conn.close()
 
     if not row:
-        raise HTTPException(status_code=404)
+        raise HTTPException(status_code=404, detail="Job not found")
 
-    return FileResponse(row[0])
+    filename = row[0]
+    output_path = row[1]
+
+    return FileResponse(
+        path=output_path,
+        media_type="audio/mpeg",
+        filename=filename
+    )
