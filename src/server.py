@@ -1,83 +1,119 @@
+import os
+import uuid
+import shutil
+import sqlite3
+from pathlib import Path
+from typing import Optional
+
+from fastapi import FastAPI, Request, HTTPException, UploadFile, File, Form
+from fastapi.responses import FileResponse
+
+app = FastAPI()
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = BASE_DIR / "data"
+INPUT_DIR = DATA_DIR / "input"
+OUTPUT_DIR = DATA_DIR / "output"
+DB_PATH = DATA_DIR / "jobs.db"
+
+DATA_DIR.mkdir(exist_ok=True)
+INPUT_DIR.mkdir(exist_ok=True)
+OUTPUT_DIR.mkdir(exist_ok=True)
+
+MASTER_ADMIN_PASSWORD = os.getenv("MASTER_ADMIN_PASSWORD", "")
+
+
+# ======================
+# DB
+# ======================
+def db():
+    return sqlite3.connect(DB_PATH)
+
+
+def init_db():
+    conn = db()
+    c = conn.cursor()
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS jobs (
+        id TEXT PRIMARY KEY,
+        filename TEXT,
+        output TEXT,
+        status TEXT
+    )
+    """)
+    conn.commit()
+    conn.close()
+
+
+init_db()
+
+
+# ======================
+# AUTH
+# ======================
+def check_admin(request: Request):
+    pw = request.headers.get("x-admin-password")
+    if pw != MASTER_ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+# ======================
+# ROUTES
+# ======================
+@app.get("/health")
+def health():
+    return {"ok": True}
+
+
 @app.post("/process")
 async def process_audio(
     request: Request,
-    file: Optional[UploadFile] = File(default=None),
-    mode: Optional[str] = Form(default="process"),
+    file: UploadFile = File(...),
+    mode: str = Form(default="process"),
 ):
     check_admin(request)
 
-    if file is None:
-        raise HTTPException(status_code=400, detail="file upload required")
+    job_id = str(uuid.uuid4())
 
-    source_filename = file.filename or "upload.mp3"
-    source_path = INPUT_DIR / source_filename
+    input_path = INPUT_DIR / f"{job_id}_{file.filename}"
+    output_path = OUTPUT_DIR / f"{job_id}_out.mp3"
 
-    with open(source_path, "wb") as f:
+    with open(input_path, "wb") as f:
         f.write(await file.read())
 
-    payload = ProcessRequest(filename=source_filename, mode=mode or "process")
+    # fake mastering
+    shutil.copy(input_path, output_path)
 
-    metadata = default_metadata(source_filename, payload)
-    job_id = create_job(
-        source_filename=source_filename,
-        source_path=str(source_path),
-        mode=payload.mode
+    conn = db()
+    c = conn.cursor()
+    c.execute(
+        "INSERT INTO jobs VALUES (?, ?, ?, ?)",
+        (job_id, file.filename, str(output_path), "done"),
     )
+    conn.commit()
+    conn.close()
 
-    try:
-        output_filename = f"{Path(source_filename).stem}_mastered.mp3"
-        output_path = OUTPUT_DIR / output_filename
+    return {"job_id": job_id}
 
-        analysis = {}
-        if payload.mode in ("master", "process") and source_path.exists() and source_path.stat().st_size > 0:
-            analysis = master_audio(source_path, output_path, metadata)
-        else:
-            output_path = source_path
-            analysis = {
-                "duration_seconds": None,
-                "sample_rate": 48000,
-                "channels": None,
-                "bit_rate": 320000,
-                "peak_db": None,
-                "input_i": None,
-                "input_tp": None,
-                "input_lra": None,
-                "input_thresh": None,
-                "normalization_type": "queue_or_json_test_mode",
-                "target_i": -9.0,
-                "target_tp": -1.0,
-                "notes": "No binary audio supplied; API test mode only."
-            }
 
-        write_analysis(job_id, analysis)
-        write_metadata_row(job_id, metadata, cover_used=None)
+@app.get("/jobs")
+def jobs():
+    conn = db()
+    c = conn.cursor()
+    rows = c.execute("SELECT * FROM jobs").fetchall()
+    conn.close()
 
-        transcript = None
-        if payload.mode in ("transcribe", "process"):
-            transcript = transcribe_stub(output_path if output_path.exists() else source_path)
-            write_transcript(job_id, transcript)
+    return rows
 
-        update_job(
-            job_id,
-            status="done",
-            output_filename=output_filename if output_path else None,
-            output_path=str(output_path) if output_path else None,
-            error=None
-        )
 
-        return {
-            "ok": True,
-            "job_id": job_id,
-            "status": "done",
-            "mode": payload.mode,
-            "source_filename": source_filename,
-            "mastered_file_url": f"/download/{output_filename}" if output_path and output_path.exists() else None,
-            "analysis": analysis,
-            "metadata": metadata,
-            "transcript_text": (transcript or {}).get("text"),
-            "transcript_json": (transcript or {}).get("json"),
-        }
+@app.get("/download/{job_id}")
+def download(job_id: str):
+    conn = db()
+    c = conn.cursor()
+    row = c.execute("SELECT output FROM jobs WHERE id=?", (job_id,)).fetchone()
+    conn.close()
 
-    except Exception as e:
-        update_job(job_id, status="error", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+    if not row:
+        raise HTTPException(status_code=404)
+
+    return FileResponse(row[0])
