@@ -107,15 +107,18 @@ def jobs():
 
 
 from fastapi.responses import FileResponse
+import os
 
 @app.get("/download/{job_id}")
 def download(job_id: str):
     conn = db()
     c = conn.cursor()
+
     row = c.execute(
         "SELECT filename, output FROM jobs WHERE id=?",
         (job_id,)
     ).fetchone()
+
     conn.close()
 
     if not row:
@@ -123,6 +126,9 @@ def download(job_id: str):
 
     filename = row[0]
     output_path = row[1]
+
+    if not os.path.exists(output_path):
+        raise HTTPException(status_code=404, detail="File not found")
 
     return FileResponse(
         path=output_path,
